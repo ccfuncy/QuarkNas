@@ -440,6 +440,15 @@ def _simplify(text: str) -> str:
     return converted if converted and converted != text else ""
 
 
+def _query_tails(query: str) -> list[str]:
+    """「Omohide Poro Poro Only Yesterday」这类罗马音前缀 + 英文原名混写，
+    整串在 TMDB 搜不到；从第二个词起逐段截掉开头再试。"""
+    words = query.split()
+    if len(words) < 3:
+        return []
+    return [" ".join(words[i:]) for i in range(1, len(words) - 1)]
+
+
 # 中文标题在别名里按这个顺序挑：大陆优先，其次港台。
 _LANGUAGE_REGIONS = {
     "zh-CN": ("CN", "HK", "TW"),
@@ -601,24 +610,16 @@ class TmdbClient:
         if best is None and self._chinese and not _CJK_RE.search(query):
             # 纯外文片名在中文结果里只剩译名，匹配不上；换英文确认条目，
             # 再按条目 id 取中文译名，避免整理成外文原名。
-            alt_results = self._results(
-                await self._get(
-                    f"search/{path}", query=query, language="en-US", include_adult="false"
-                )
-            )
-            best = self._rank(alt_results, query, is_tv, year)
+            alt_results, best = await self._en_lookup(path, query, is_tv, year)
             if best is None:
                 results = alt_results
-            else:
-                detail = await self._detail(str(best[3]), path)
-                if detail:
-                    best = (
-                        best[0],
-                        detail[0],
-                        detail[1] or best[2],
-                        best[3],
-                        best[4],
-                    )
+        if best is None and not results and not _CJK_RE.search(query):
+            # 罗马音前缀 + 英文原名混写时整串检索不到，逐段截掉开头的词再试。
+            for tail in _query_tails(query):
+                tail_results, best = await self._en_lookup(path, tail, is_tv, year)
+                if best is not None:
+                    results = tail_results
+                    break
         if best is None:
             # 本地片名和 TMDB 主标题对不上（港台译名、原版改名），翻候选条目的别名再比。
             best = await self._alias_rank(results, query, is_tv, year, path)
@@ -637,6 +638,22 @@ class TmdbClient:
             elif _CJK_RE.search(title):
                 matched = title
         return MetaMatch(title=matched, year=best[2], source_id=str(best[3]), via="tmdb")
+
+    async def _en_lookup(
+        self, path: str, query: str, is_tv: bool, year: int | None
+    ) -> tuple[list[Any], tuple[float, str, int | None, Any, float] | None]:
+        """用英文检索确认条目，命中后按 id 取回目标语言的译名。"""
+        results = self._results(
+            await self._get(
+                f"search/{path}", query=query, language="en-US", include_adult="false"
+            )
+        )
+        best = self._rank(results, query, is_tv, year)
+        if best is not None:
+            detail = await self._detail(str(best[3]), path)
+            if detail:
+                best = (best[0], detail[0], detail[1] or best[2], best[3], best[4])
+        return results, best
 
     async def _alternative(self, media_id: str, path: str) -> str:
         """从条目的别名里挑一个目标语言的标题；没有就返回空串。"""
