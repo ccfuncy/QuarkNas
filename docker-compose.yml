@@ -1,0 +1,30 @@
+services:
+  quarknas:
+    build: .
+    # 用 Docker Hub 预构建镜像时：QUARKNAS_IMAGE=<用户名>/quarknas:latest docker compose pull
+    image: ${QUARKNAS_IMAGE:-quarknas:latest}
+    container_name: quarknas
+    restart: unless-stopped
+    ports:
+      # 左侧是飞牛上访问的端口，按需改成空闲端口
+      - "18080:8080"
+    environment:
+      TZ: Asia/Shanghai
+      DOWNLOAD_ROOT: /downloads
+      CONFIG_DIR: /config
+      # 设置后访问网页会弹 HTTP Basic 认证；留空则不校验（仅建议在可信内网使用）
+      AUTH_PASSWORD: "${AUTH_PASSWORD:-}"
+      # 单个文件的分段数（1 表示顺序下载）；非会员建议 2~4
+      SEGMENTS: "4"
+      # 同时下载的文件数；夸克风控敏感，建议 1~2
+      CONCURRENCY: "2"
+      # 剩余空间低于该水位时拒绝新任务（GB）
+      LOW_WATERMARK_GB: "2"
+      # 影视整理校正后的片名语言：zh-CN / zh-TW / en-US
+      TMDB_LANGUAGE: "zh-CN"
+    user: "${PUID:-1000}:${PGID:-1000}"
+    volumes:
+      # 配置与 SQLite 数据库
+      - ./config:/config
+      # 飞牛上的落盘目录：把左侧改成你自己的存储空间路径
+      - /vol1/1000/Downloads:/downloads

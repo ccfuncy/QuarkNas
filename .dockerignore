@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.git/
+.gitignore
+config/
+.devdata/
+*.part
+*.part.json
+.venv/
+venv/
+.cache/
+*.log
+downloads/
+logs/
+.screenshots/
+.github/
