@@ -2709,6 +2709,9 @@
     $("set-tmdb-hosts").value = state.cfg.tmdb_hosts_url || "";
     $("set-tmdb-lang").value = state.cfg.tmdb_language || "zh-CN";
     $("set-tmdb-aliases").value = state.cfg.tmdb_aliases || "";
+    $("set-llm-base").value = state.cfg.llm_base_url || "";
+    $("set-llm-key").value = state.cfg.llm_api_key || "";
+    $("set-llm-model").value = state.cfg.llm_model || "";
   }
 
   async function loadSettings(show) {
@@ -2808,6 +2811,9 @@
       tmdb_hosts_url: $("set-tmdb-hosts").value.trim(),
       tmdb_language: $("set-tmdb-lang").value,
       tmdb_aliases: $("set-tmdb-aliases").value.trim(),
+      llm_base_url: $("set-llm-base").value.trim(),
+      llm_api_key: $("set-llm-key").value.trim(),
+      llm_model: $("set-llm-model").value.trim(),
     };
 
     button.disabled = true;
@@ -3066,6 +3072,7 @@
               episode: item.episode,
               ext: item.ext,
               alt_titles: item.alt_titles || [],
+              name: item.name,
             })),
           }),
         });

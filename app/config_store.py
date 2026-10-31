@@ -46,6 +46,10 @@ def _defaults(settings: Settings) -> dict[str, Any]:
         "tmdb_language": settings.tmdb_language,
         # 片名别名，每行「本地名 = 目标片名 (年份)」；TMDB 缺条目时手动映射。
         "tmdb_aliases": "",
+        # 可选的 LLM 兜底：三项都填了才启用，把对不上的文件名换成可检索片名。
+        "llm_base_url": "",
+        "llm_api_key": "",
+        "llm_model": "",
     }
 
 
@@ -139,6 +143,23 @@ def validate(key: str, value: Any) -> Any:
         text = str(value or "").strip()
         if len(text) > 4000:
             raise ConfigError("片名别名不能超过 4000 个字符")
+        return text
+    if key == "llm_base_url":
+        text = str(value or "").strip()
+        if len(text) > 512:
+            raise ConfigError("LLM 接口地址不能超过 512 个字符")
+        if text and not text.startswith(("http://", "https://")):
+            raise ConfigError("LLM 接口地址必须以 http:// 或 https:// 开头")
+        return text
+    if key == "llm_api_key":
+        text = str(value or "").strip()
+        if len(text) > 512:
+            raise ConfigError("LLM API Key 不能超过 512 个字符")
+        return text
+    if key == "llm_model":
+        text = str(value or "").strip()
+        if len(text) > 128:
+            raise ConfigError("LLM 模型名不能超过 128 个字符")
         return text
     if key == "schedule_enabled" or key == "notify_browser":
         return _as_bool(key, value)

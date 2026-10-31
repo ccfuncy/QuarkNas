@@ -16,6 +16,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from ..llm import LlmClient
 from ..media import (
     LIBRARY_DIRS,
     SIDECAR_EXTS,
@@ -44,33 +45,50 @@ MAX_CHECK_DIRS = 80
 MAX_ENRICH = 60
 MAX_TMDB_QUERIES = 20
 
-# TMDB 客户端随 Key / 节点列表地址 / 标题语言 / 片名别名变化重建，改了设置立刻生效。
-_tmdb: tuple[str, str, str, str, TmdbClient] | None = None
+# TMDB 客户端随 Key / 节点列表地址 / 标题语言 / 片名别名 / LLM 兜底配置变化重建。
+_tmdb: tuple[str, str, str, str, str, str, str, TmdbClient] | None = None
 
 
 def _tmdb_client(
-    api_key: str, hosts_url: str, language: str, aliases_text: str
+    api_key: str,
+    hosts_url: str,
+    language: str,
+    aliases_text: str,
+    llm_base_url: str,
+    llm_api_key: str,
+    llm_model: str,
 ) -> TmdbClient:
     global _tmdb
     key = api_key.strip()
     hosts = hosts_url.strip()
     lang = language.strip() or "zh-CN"
     aliases = aliases_text.strip()
+    base = llm_base_url.strip()
+    llm_key = llm_api_key.strip()
+    model = llm_model.strip()
     if (
         _tmdb is None
         or _tmdb[0] != key
         or _tmdb[1] != hosts
         or _tmdb[2] != lang
         or _tmdb[3] != aliases
+        or _tmdb[4] != base
+        or _tmdb[5] != llm_key
+        or _tmdb[6] != model
     ):
+        # 地址 / Key / 模型三项都填了才启用，缺一项就当没配置。
+        llm = LlmClient(base, llm_key, model) if base and llm_key and model else None
         _tmdb = (
             key,
             hosts,
             lang,
             aliases,
-            TmdbClient(key, hosts, lang, parse_aliases(aliases)),
+            base,
+            llm_key,
+            model,
+            TmdbClient(key, hosts, lang, parse_aliases(aliases), llm),
         )
-    return _tmdb[4]
+    return _tmdb[7]
 
 
 # 预告、样片、花絮这类文件不该进影视库。
@@ -205,6 +223,8 @@ class EnrichItem(BaseModel):
     ext: str = ""
     # 文件名里被切掉的外文原名，检索时用来交叉确认条目。
     alt_titles: list[str] = Field(default_factory=list)
+    # 原始文件名，只给可选的 LLM 兜底用；本地规则全对不上时才发给模型。
+    name: str = ""
 
 
 class EnrichRequest(BaseModel):
@@ -360,6 +380,9 @@ async def enrich(req: EnrichRequest, ctx: Ctx = Depends(get_ctx)) -> dict:
         str(ctx.config.get("tmdb_hosts_url") or ""),
         language,
         str(ctx.config.get("tmdb_aliases") or ""),
+        str(ctx.config.get("llm_base_url") or ""),
+        str(ctx.config.get("llm_api_key") or ""),
+        str(ctx.config.get("llm_model") or ""),
     )
     max_queries = MAX_TMDB_QUERIES
     groups: dict[tuple[str, str], list[EnrichItem]] = {}
@@ -381,7 +404,7 @@ async def enrich(req: EnrichRequest, ctx: Ctx = Depends(get_ctx)) -> dict:
         queried += 1
         try:
             found = await client.search(
-                title, kind, group[0].year, group[0].alt_titles
+                title, kind, group[0].year, group[0].alt_titles, group[0].name
             )
         except TmdbError as exc:
             # Key 无效这类错误没法靠重试解决，直接把原因带回前端。

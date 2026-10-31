@@ -7,6 +7,7 @@ TMDB 校验并换成中文官方译名。解析部分只做纯计算，方便单
 from __future__ import annotations
 
 import html
+import logging
 import re
 import time
 import unicodedata
@@ -22,7 +23,10 @@ try:
 except ImportError:  # 没装也能跑，只是不做繁简归一
     _zh_convert = None
 
+from .llm import LlmClient
 from .paths import safe_component
+
+log = logging.getLogger(__name__)
 
 VIDEO_EXTS = {
     ".mkv",
@@ -586,6 +590,7 @@ class TmdbClient:
         hosts_url: str = "",
         language: str = "zh-CN",
         aliases: dict[str, tuple[str, int | None]] | None = None,
+        llm: LlmClient | None = None,
     ) -> None:
         self.api_key = api_key.strip()
         # CheckTMDB 的 hosts 列表地址；留空就直连官方域名。
@@ -594,6 +599,8 @@ class TmdbClient:
         self.language = (language or "zh-CN").strip()
         # 本地片名 → (目标片名, 年份)，TMDB 缺条目时的手动映射。
         self.aliases = aliases or {}
+        # 可选的文件名兜底解析，没配置时为 None。
+        self.llm = llm
         # 只有选中文时才需要做「别名词条 / 保留本地中文名」的回退。
         self._chinese = self.language.startswith("zh")
         self._http = httpx.AsyncClient(
@@ -651,6 +658,7 @@ class TmdbClient:
         kind: str,
         year: int | None,
         alt_titles: list[str] | None = None,
+        raw_name: str = "",
     ) -> MetaMatch | None:
         title = (title or "").strip()
         if not title or title == "未命名":
@@ -714,6 +722,9 @@ class TmdbClient:
         if best is None:
             # `红の豚` 这类繁简混写的片名搜出来只有一条，就是 TMDB 给出的答案。
             best = self._only_result(results, query, is_tv, year)
+        if best is None and not alias_title:
+            # 本地规则彻底对不上时，让模型给几个候选片名，再回 TMDB 精确确认。
+            best = await self._llm_fallback(path, is_tv, year, raw_name or title)
         if best is None:
             if alias_title:
                 # 手动映射优先于检索结果：TMDB 没这条也按配置的片名整理。
@@ -742,6 +753,67 @@ class TmdbClient:
         return MetaMatch(
             title=matched, year=matched_year, source_id=str(best[3]), via="tmdb"
         )
+
+    async def _llm_fallback(
+        self, path: str, is_tv: bool, year: int | None, raw_name: str
+    ) -> tuple[float, str, int | None, Any, float] | None:
+        """文件名里没有可用片名时，让模型给候选片名，再回 TMDB 精确确认。
+
+        模型只负责出候选，不做裁决：候选必须标题精确命中、年份在一年误差内，
+        并且唯一命中才算数；不满足就当作没查到，整理仍用本地片名。
+        """
+        if self.llm is None:
+            return None
+        try:
+            hint = await self.llm.suggest(
+                raw_name, "episode" if is_tv else "movie", year
+            )
+        except Exception as exc:  # 兜底失败不影响主流程
+            log.warning("LLM 兜底解析失败：%s", exc)
+            return None
+        if not hint:
+            return None
+        guesses: list[str] = []
+        for value in [hint.get("title"), *hint.get("alt_titles", [])]:
+            text = str(value or "").strip()
+            if text and text not in guesses:
+                guesses.append(text)
+        for guess in guesses:
+            key = norm_key(guess)
+            if not key:
+                continue
+            results = self._results(
+                await self._get(
+                    f"search/{path}",
+                    query=guess,
+                    language=self.language,
+                    include_adult="false",
+                )
+            )
+            hits = []
+            for raw in results[:20]:
+                meta = self._candidate(raw, is_tv)
+                if not meta or not meta["id"]:
+                    continue
+                if key not in {norm_key(meta["localized"]), norm_key(meta["original"])}:
+                    continue
+                # 本地年份可能差一年，媒体条目也常标制作年而非首映年。
+                if year and meta["year"] and abs(meta["year"] - year) > 1:
+                    continue
+                hits.append(meta)
+            if len(hits) == 1:
+                meta = hits[0]
+                score = self._score(
+                    100.0, meta, year, norm_key(meta["localized"]) == key
+                )
+                return (
+                    score,
+                    meta["label"],
+                    meta["year"],
+                    meta["id"],
+                    meta["popularity"],
+                )
+        return None
 
     async def _consensus(
         self,

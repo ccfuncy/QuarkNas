@@ -255,6 +255,22 @@
         <textarea id="set-tmdb-aliases" rows="3" spellcheck="false" placeholder="吉卜力实验剧场 = On Your Mark (1995)"></textarea>
         <small>每行一条「本地片名 = 目标片名 (年份)」。TMDB 没有对应条目、或条目名对不上时，按这里的目标片名检索并整理。</small>
       </label>
+      <div class="form-section">LLM 兜底（可选）</div>
+      <label class="field span-2">
+        LLM 接口地址
+        <input type="text" id="set-llm-base" autocomplete="off" spellcheck="false" placeholder="https://api.openai.com/v1">
+        <small>OpenAI 兼容的 /chat/completions 接口地址；与下面两项一起填满才启用。</small>
+      </label>
+      <label class="field span-2">
+        LLM API Key
+        <input type="text" id="set-llm-key" autocomplete="off" spellcheck="false">
+        <small>只在内置规则完全对不上时调用，模型给出的片名仍要经 TMDB 精确校验才会采用。</small>
+      </label>
+      <label class="field span-2">
+        LLM 模型
+        <input type="text" id="set-llm-model" autocomplete="off" spellcheck="false" placeholder="gpt-4o-mini">
+        <small>填模型名，例如 gpt-4o-mini / deepseek-chat。</small>
+      </label>
     </div>
 
     <p class="muted">落盘目录：<code id="set-root"></code>（由容器环境变量决定，不可在页面修改）</p>
