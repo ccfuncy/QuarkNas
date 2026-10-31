@@ -22,6 +22,7 @@ from ..media import (
     VIDEO_EXTS,
     TmdbClient,
     TmdbError,
+    parse_aliases,
     parse_media,
     pick_folder,
     target_paths,
@@ -43,18 +44,33 @@ MAX_CHECK_DIRS = 80
 MAX_ENRICH = 60
 MAX_TMDB_QUERIES = 20
 
-# TMDB 客户端随 Key / 节点列表地址 / 标题语言变化重建，改了设置立刻生效。
-_tmdb: tuple[str, str, str, TmdbClient] | None = None
+# TMDB 客户端随 Key / 节点列表地址 / 标题语言 / 片名别名变化重建，改了设置立刻生效。
+_tmdb: tuple[str, str, str, str, TmdbClient] | None = None
 
 
-def _tmdb_client(api_key: str, hosts_url: str, language: str) -> TmdbClient:
+def _tmdb_client(
+    api_key: str, hosts_url: str, language: str, aliases_text: str
+) -> TmdbClient:
     global _tmdb
     key = api_key.strip()
     hosts = hosts_url.strip()
     lang = language.strip() or "zh-CN"
-    if _tmdb is None or _tmdb[0] != key or _tmdb[1] != hosts or _tmdb[2] != lang:
-        _tmdb = (key, hosts, lang, TmdbClient(key, hosts, lang))
-    return _tmdb[3]
+    aliases = aliases_text.strip()
+    if (
+        _tmdb is None
+        or _tmdb[0] != key
+        or _tmdb[1] != hosts
+        or _tmdb[2] != lang
+        or _tmdb[3] != aliases
+    ):
+        _tmdb = (
+            key,
+            hosts,
+            lang,
+            aliases,
+            TmdbClient(key, hosts, lang, parse_aliases(aliases)),
+        )
+    return _tmdb[4]
 
 
 # 预告、样片、花絮这类文件不该进影视库。
@@ -337,7 +353,10 @@ async def enrich(req: EnrichRequest, ctx: Ctx = Depends(get_ctx)) -> dict:
 
     language = str(ctx.config.get("tmdb_language") or "zh-CN")
     client = _tmdb_client(
-        api_key, str(ctx.config.get("tmdb_hosts_url") or ""), language
+        api_key,
+        str(ctx.config.get("tmdb_hosts_url") or ""),
+        language,
+        str(ctx.config.get("tmdb_aliases") or ""),
     )
     max_queries = MAX_TMDB_QUERIES
     groups: dict[tuple[str, str], list[EnrichItem]] = {}
