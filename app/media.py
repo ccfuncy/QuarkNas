@@ -717,14 +717,21 @@ class TmdbClient:
                 return MetaMatch(title=alias_title, year=year, source_id="", via="alias")
             return None
         matched = best[1]
-        # 选中文时 TMDB 没有中文主标题，先从别名里找中文名，实在没有就保留
-        # 本地的中文片名，不把用户的中文片名改成外文原名。
+        # 选中文时结果里可能是外文名（英文兜底检索出来的条目），先按条目 id
+        # 取回目标语言主标题，如 `Warriors of the Wind` 的中文名是「风之谷」；
+        # 再退别名，最后保留本地中文片名，不把用户的片名改成外文原名。
         if self._chinese and not _CJK_RE.search(matched):
-            zh = await self._alternative(str(best[3]), path)
-            if zh:
-                matched = zh
-            elif _CJK_RE.search(title):
-                matched = title
+            detail = await self._detail(str(best[3]), path)
+            if detail:
+                matched = detail[0]
+                if best[2] is None:
+                    best = (best[0], matched, detail[1], best[3], best[4])
+            if not _CJK_RE.search(matched):
+                zh = await self._alternative(str(best[3]), path)
+                if zh:
+                    matched = zh
+                elif _CJK_RE.search(title):
+                    matched = title
         # 手动映射带了年份时，条目缺上映日期就用映射里的年份。
         matched_year = best[2]
         if alias_title and matched_year is None:
