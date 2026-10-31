@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+config/
+downloads/
+.devdata/
+*.part
+*.part.json
+*.log
+.env
+cookie.txt
+cookie*.txt
