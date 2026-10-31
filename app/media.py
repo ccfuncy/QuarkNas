@@ -807,12 +807,13 @@ class TmdbClient:
             meta = cls._candidate(raw, is_tv)
             if meta is None:
                 continue
-            keys = {
-                norm_key(value) for value in (meta["localized"], meta["original"]) if value
-            }
-            if target not in keys:
+            localized = norm_key(meta["localized"]) if meta["localized"] else ""
+            original = norm_key(meta["original"]) if meta["original"] else ""
+            if target not in {localized, original} or not target:
                 continue
-            localized_hit = bool(meta["localized"]) and norm_key(meta["localized"]) == target
+            # 条目没有本地化译名时 TMDB 直接用原名兜底，本地化命中和原名命中
+            # 就成了一回事；这种情况不加分，否则会压过热度更高的正片。
+            localized_hit = localized == target and localized != original
             score = cls._score(100.0, meta, year, localized_hit)
             best = cls._better(best, score, meta)
         return best
