@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QuarkNas · 夸克网盘备份到飞牛</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23ffffff'/%3E%3Ccircle cx='16' cy='16' r='7' fill='none' stroke='%232563eb' stroke-width='2.5'/%3E%3Ccircle cx='16' cy='16' r='2.5' fill='%232563eb'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M13.5 3 5 13.5h5.5L9 21l9-11.5h-5.5L13.5 3Z" fill="currentColor"/>
+      </svg>
+    </span>
+    <span>QuarkNas</span>
+    <small>v{{ version }}</small>
+  </div>
+  <div class="top-actions">
+    <div class="account-wrap">
+      <span class="chip" id="account-chip" tabindex="0">未登录</span>
+      <span class="chip" id="capacity-chip" hidden></span>
+      <div class="account-pop" id="account-pop" role="tooltip">
+        <div class="acc-row"><span>昵称</span><b class="acc-val" id="acc-nick">-</b></div>
+        <div class="acc-row"><span>状态</span><b class="acc-val" id="acc-state">-</b></div>
+        <div class="acc-row"><span>类型</span><b class="acc-val" id="acc-vip">-</b></div>
+        <div class="acc-row"><span>原始类型</span><b class="acc-val" id="acc-raw">-</b></div>
+        <div class="acc-row"><span>到期</span><b class="acc-val" id="acc-exp">-</b></div>
+        <div class="acc-row"><span>已用</span><b class="acc-val" id="acc-used">-</b></div>
+        <div class="acc-row"><span>总容量</span><b class="acc-val" id="acc-total">-</b></div>
+        <div class="acc-row"><span>剩余</span><b class="acc-val" id="acc-free">-</b></div>
+        <div class="acc-bar"><i id="acc-bar-fill"></i></div>
+        <div class="acc-foot" id="acc-updated">-</div>
+      </div>
+    </div>
+    <button class="btn ghost" id="btn-check">检测登录</button>
+    <button class="btn ghost" id="btn-account">扫码登录</button>
+    <button class="btn ghost" id="btn-settings">设置</button>
+    <button class="btn ghost" id="btn-logs">日志</button>
+  </div>
+</header>
+
+<main class="layout">
+  <section class="panel files-panel">
+    <div class="panel-head">
+      <nav class="crumbs" id="crumbs"></nav>
+      <div class="head-actions">
+        <select class="select" id="search-mode" aria-label="搜索范围">
+          <option value="local">当前目录</option>
+          <option value="cloud">全盘搜索</option>
+        </select>
+        <input class="search" id="search" type="search" placeholder="筛选当前目录">
+        <button class="btn ghost" id="btn-organize">影视整理</button>
+        <button class="btn ghost" id="btn-new-folder">新建文件夹</button>
+        <button class="btn ghost" id="btn-recycle">回收站</button>
+        <button class="btn ghost" id="btn-refresh">刷新</button>
+      </div>
+    </div>
+
+    <div class="sel-bar" id="sel-bar" hidden>
+      <span class="sel-info">已选 <b id="sel-count">0</b> 项</span>
+      <span class="sel-actions">
+        <button class="btn tiny" id="btn-download" type="button">下载</button>
+        <button class="btn tiny" id="btn-batch-move" type="button">移到…</button>
+        <button class="btn tiny danger" id="btn-batch-delete" type="button">删除</button>
+        <button class="btn tiny ghost" id="btn-sel-clear" type="button">取消选择</button>
+      </span>
+    </div>
+
+    <div class="table-wrap">
+      <table class="files-table">
+        <thead>
+          <tr>
+            <th class="col-check"><input type="checkbox" id="check-all" aria-label="全选"></th>
+            <th class="col-name" data-sort="name"><button class="th-sort" type="button">名称</button></th>
+            <th class="col-size" data-sort="size"><button class="th-sort" type="button">大小</button></th>
+            <th class="col-time" data-sort="time"><button class="th-sort" type="button">修改时间</button></th>
+          </tr>
+        </thead>
+        <tbody id="file-rows"></tbody>
+      </table>
+      <div class="empty" id="files-empty" hidden>这里还没有内容</div>
+    </div>
+
+    <div class="pager" id="pager"></div>
+  </section>
+
+  <aside class="panel tasks-panel">
+    <div class="panel-head">
+      <h2>下载任务</h2>
+      <div class="head-actions">
+        <span class="speed-now" id="speed-now">0 B/s</span>
+        <button class="btn ghost" id="btn-stats">统计</button>
+        <button class="btn ghost" id="btn-clear">清除已完成</button>
+      </div>
+    </div>
+    <div class="task-toolbar">
+      <input class="search task-search" id="task-search" type="search" placeholder="搜索文件名/路径" autocomplete="off">
+      <select class="select task-filter" id="task-status-filter" aria-label="按状态筛选">
+        <option value="all">全部状态</option>
+        <option value="active">进行中</option>
+        <option value="done">已完成</option>
+        <option value="failed">失败</option>
+        <option value="paused">已暂停</option>
+        <option value="canceled">已取消</option>
+      </select>
+      <button class="btn tiny ghost" id="btn-pause-all" type="button">全部暂停</button>
+      <button class="btn tiny ghost" id="btn-resume-all" type="button">全部恢复</button>
+      <button class="btn tiny ghost" id="btn-retry-all" type="button">重试失败</button>
+      <button class="btn tiny ghost danger" id="btn-cancel-all" type="button">取消全部</button>
+    </div>
+    <div class="risk-banner" id="risk-banner" hidden>
+      <strong>风控冷却</strong>
+      <span id="risk-text">已降低并发并暂停扩容，稍后自动重试</span>
+      <span class="risk-count" id="risk-count"></span>
+    </div>
+    <div class="speed-box">
+      <svg class="speed-chart" id="speed-chart" viewBox="0 0 300 48" preserveAspectRatio="none" aria-hidden="true"></svg>
+      <span class="speed-label">最近 10 分钟总速度</span>
+    </div>
+    <div class="task-list" id="task-list">
+      <div class="empty">暂无任务</div>
+    </div>
+    <div class="root-hint">
+      <span class="root-line" title="落盘目录：{{ download_root }}">
+        <span>落盘目录</span><code>{{ download_root }}</code>
+      </span>
+      <span class="disk-line">
+        <span class="disk-meter" id="disk-meter" aria-hidden="true"><i id="disk-fill"></i></span>
+        <span class="disk-hint" id="disk-hint"></span>
+        <span class="disk-delta" id="disk-delta" hidden></span>
+      </span>
+    </div>
+  </aside>
+</main>
+
+<dialog id="cookie-dialog" class="dialog">
+  <div class="dialog-body">
+    <div class="dialog-title">
+      <h3>扫码登录夸克网盘</h3>
+      <button class="dialog-x" id="btn-dialog-close" type="button" aria-label="关闭">×</button>
+    </div>
+
+    <div class="qr-frame">
+      <span class="qr-placeholder" id="qr-placeholder">二维码准备中…</span>
+      <img id="qr-img" alt="夸克登录二维码" hidden>
+    </div>
+
+    <p class="qr-status" id="qr-status">正在生成二维码…</p>
+    <p class="muted center">打开手机夸克 App → 扫一扫 → 在手机上确认登录</p>
+
+    <div class="dialog-foot center">
+      <button class="btn ghost" id="btn-qr-new" type="button">换一张二维码</button>
+      <span class="qr-count" id="qr-count"></span>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="settings-dialog" class="dialog">
+  <form class="dialog-body" id="settings-form">
+    <div class="dialog-title">
+      <h3>下载设置</h3>
+      <button class="dialog-x" type="button" data-close="settings-dialog" aria-label="关闭">×</button>
+    </div>
+
+    <div class="form-grid">
+      <div class="form-section">下载性能</div>
+      <label class="field">
+        单文件连接数（分段）
+        <input type="number" id="set-segments" min="1" max="16" step="1">
+        <small>实测 8 段可稳定 10 MB/s 以上；单连接变慢时会自动扩容到 16 段。</small>
+      </label>
+      <label class="field">
+        同时下载文件数
+        <input type="number" id="set-concurrency" min="1" max="8" step="1">
+      </label>
+      <label class="field">
+        同名文件处理
+        <select id="set-conflict">
+          <option value="skip">跳过，保留原文件</option>
+          <option value="overwrite">覆盖原文件</option>
+          <option value="keep_both">保留二者（自动改名）</option>
+        </select>
+      </label>
+      <label class="field">
+        磁盘保留空间（GB）
+        <input type="number" id="set-watermark" min="0" step="0.5">
+      </label>
+      <label class="field span-2">
+        总下载限速（MB/s）
+        <input type="number" id="set-speed" min="0" step="0.1">
+        <small>0 表示不限速，所有任务共享该上限。</small>
+      </label>
+
+      <div class="form-section">调度与清理</div>
+      <label class="field">
+        队列顺序
+        <select id="set-queue-order">
+          <option value="time">按添加时间（先到先下）</option>
+          <option value="size_desc">大文件优先</option>
+          <option value="size_asc">小文件优先</option>
+        </select>
+        <small>手动「置顶」的任务始终排在最前。</small>
+      </label>
+      <label class="field">
+        自动清理任务记录
+        <input type="number" id="set-cleanup-days" min="0" max="365" step="1">
+        <small>保留记录的天数，0 为不清理；只删记录，不删文件。</small>
+      </label>
+      <label class="field">
+        下载时段
+        <label class="check"><input type="checkbox" id="set-schedule"> 仅在指定时段下载</label>
+        <div class="time-row">
+          <input type="time" id="set-schedule-start">
+          <span>至</span>
+          <input type="time" id="set-schedule-end">
+        </div>
+        <small>支持跨午夜，例如 23:00 至 07:00。</small>
+      </label>
+      <div class="field">
+        失败自动重试
+        <div class="time-row">
+          <input type="number" id="set-retry-count" min="0" max="10" step="1">
+          <span>次，起始间隔</span>
+          <input type="number" id="set-retry-backoff" min="5" max="600" step="5">
+          <span>秒</span>
+        </div>
+        <small>0 表示关闭；之后按 2 倍指数退避，单次最长 10 分钟。磁盘空间不足不重试。</small>
+      </div>
+
+      <div class="form-section">影视整理</div>
+      <label class="field span-2">
+        TMDB API Key
+        <input type="text" id="set-tmdb-key" autocomplete="off" spellcheck="false" placeholder="不填则影视整理不做片名校准">
+        <small>在 themoviedb.org 个人设置里免费申请；支持 v3 Key 或 v4 读访问令牌。填写后影视整理才能勾选「用 TMDB 校正片名」。</small>
+      </label>
+      <label class="field span-2">
+        TMDB 节点列表地址
+        <input type="text" id="set-tmdb-hosts" autocomplete="off" spellcheck="false">
+        <small>CheckTMDB 维护的可用节点 IP 列表（hosts 格式），默认走 gh-proxy 镜像；留空则直连 api.themoviedb.org。</small>
+      </label>
+      <label class="field span-2">
+        TMDB 标题语言
+        <select id="set-tmdb-lang">
+          <option value="zh-CN">简体中文</option>
+          <option value="zh-TW">繁体中文</option>
+          <option value="en-US">英文</option>
+        </select>
+        <small>校正后片名使用的语言。选中文时优先 TMDB 中文名，没有中文名就用中文别名，仍没有则保留你原来的中文片名。</small>
+      </label>
+    </div>
+
+    <p class="muted">落盘目录：<code id="set-root"></code>（由容器环境变量决定，不可在页面修改）</p>
+    <div class="dialog-foot sticky">
+      <span class="dialog-msg" id="settings-msg"></span>
+      <button class="btn ghost" type="button" id="btn-settings-export">导出设置</button>
+      <button class="btn ghost" type="button" id="btn-settings-import">导入设置</button>
+      <input type="file" id="settings-file" accept="application/json,.json" hidden>
+      <button class="btn primary" type="submit" id="btn-settings-save">保存设置</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="task-detail-dialog" class="dialog">
+  <div class="dialog-body">
+    <div class="dialog-title">
+      <h3 id="detail-title">任务详情</h3>
+      <button class="dialog-x" type="button" data-close="task-detail-dialog" aria-label="关闭">×</button>
+    </div>
+    <div class="detail-body" id="detail-body"></div>
+  </div>
+</dialog>
+
+<dialog id="delete-dialog" class="dialog">
+  <div class="dialog-body">
+    <div class="dialog-title">
+      <h3 id="delete-title">删除任务</h3>
+      <button class="dialog-x" type="button" data-close="delete-dialog" aria-label="关闭">×</button>
+    </div>
+    <p class="muted" id="delete-msg"></p>
+    <div class="dialog-foot">
+      <button class="btn ghost" id="btn-delete-cancel" type="button">取消</button>
+      <button class="btn ghost" id="btn-delete-record" type="button">仅删记录</button>
+      <button class="btn danger-solid" id="btn-delete-files" type="button">同时删除文件</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="rename-dialog" class="dialog">
+  <form class="dialog-body" id="rename-form">
+    <div class="dialog-title">
+      <h3 id="rename-title">重命名</h3>
+      <button class="dialog-x" type="button" data-close="rename-dialog" aria-label="关闭">×</button>
+    </div>
+    <label class="field">
+      新名称
+      <input type="text" id="rename-input" maxlength="255" autocomplete="off" spellcheck="false">
+    </label>
+    <div class="dialog-foot">
+      <span class="dialog-msg" id="rename-msg"></span>
+      <button class="btn ghost" type="button" data-close="rename-dialog">取消</button>
+      <button class="btn primary" type="submit" id="btn-rename-save">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="move-dialog" class="dialog">
+  <div class="dialog-body">
+    <div class="dialog-title">
+      <h3 id="move-title">移动到</h3>
+      <button class="dialog-x" type="button" data-close="move-dialog" aria-label="关闭">×</button>
+    </div>
+    <div class="move-bar">
+      <button class="btn tiny ghost" id="move-up" type="button">↑ 上一级</button>
+      <span class="move-path" id="move-path">/</span>
+    </div>
+    <div class="move-list" id="move-list"></div>
+    <div class="dialog-foot">
+      <span class="dialog-msg" id="move-msg"></span>
+      <button class="btn ghost" type="button" data-close="move-dialog">取消</button>
+      <button class="btn primary" type="button" id="btn-move-here">移动到这里</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="rm-dialog" class="dialog">
+  <div class="dialog-body">
+    <div class="dialog-title">
+      <h3>删除</h3>
+      <button class="dialog-x" type="button" data-close="rm-dialog" aria-label="关闭">×</button>
+    </div>
+    <p class="muted" id="rm-msg"></p>
+    <div class="dialog-foot">
+      <span class="dialog-msg" id="rm-result"></span>
+      <button class="btn ghost" type="button" data-close="rm-dialog">取消</button>
+      <button class="btn danger-solid" type="button" id="btn-rm-confirm">删除</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="recycle-dialog" class="dialog wide">
+  <div class="dialog-body">
+    <div class="dialog-title">
+      <h3>回收站</h3>
+      <button class="dialog-x" type="button" data-close="recycle-dialog" aria-label="关闭">×</button>
+    </div>
+    <div class="recycle-list" id="recycle-list"></div>
+    <div class="recycle-empty muted" id="recycle-empty" hidden>回收站是空的</div>
+    <div class="recycle-pager" id="recycle-pager" hidden>
+      <button class="btn tiny ghost" id="recycle-prev" type="button">上一页</button>
+      <span id="recycle-page-info">1 / 1</span>
+      <button class="btn tiny ghost" id="recycle-next" type="button">下一页</button>
+    </div>
+    <div class="dialog-foot">
+      <span class="dialog-msg" id="recycle-msg"></span>
+      <button class="btn ghost" type="button" id="btn-recycle-clear">清空回收站</button>
+      <button class="btn danger" type="button" id="btn-recycle-purge">彻底删除</button>
+      <button class="btn primary" type="button" id="btn-recycle-restore">还原</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="organize-dialog" class="dialog wide">
+  <div class="dialog-body">
+    <div class="dialog-title">
+      <h3>影视整理</h3>
+      <button class="dialog-x" type="button" data-close="organize-dialog" aria-label="关闭">×</button>
+    </div>
+    <div class="org-bar">
+      <span class="org-scope">扫描位置 <code id="org-path">/</code></span>
+      <label class="check"><input type="checkbox" id="org-meta" checked> 用 TMDB 校正片名</label>
+      <span class="muted org-meta-hint" id="org-meta-hint"></span>
+      <button class="btn tiny" type="button" id="btn-org-scan">开始扫描</button>
+      <span class="dialog-msg" id="org-msg"></span>
+    </div>
+    <div class="org-progress" id="org-progress-panel" hidden>
+      <div class="org-progress-head">
+        <span class="org-stage" id="org-stage"></span>
+        <span class="org-stage-counts" id="org-stage-counts"></span>
+      </div>
+      <div class="org-meta-bar" id="org-meta-bar"><i></i></div>
+    </div>
+    <p class="muted org-tip">
+      按 Jellyfin/Emby 习惯生成 <code>电影/片名 (年份)/</code> 与 <code>电视剧/剧名 (年份)/Season 01/</code>，
+      目录建在网盘根目录。执行前可以逐条修改目标路径，取消勾选即可跳过。
+    </p>
+    <div class="org-table-wrap">
+      <table class="org-table">
+        <thead>
+          <tr>
+            <th class="col-check"><input type="checkbox" id="org-check-all" aria-label="全选"></th>
+            <th class="org-col-src">原文件</th>
+            <th class="org-col-dst">目标路径（可编辑）</th>
+            <th class="org-col-info">识别依据</th>
+          </tr>
+        </thead>
+        <tbody id="org-rows"></tbody>
+      </table>
+      <div class="empty" id="org-empty">扫描后在这里预演整理结果</div>
+    </div>
+    <div class="org-pager" id="org-pager" hidden>
+      <button class="btn tiny" type="button" id="org-prev">上一页</button>
+      <span id="org-page-info"></span>
+      <button class="btn tiny" type="button" id="org-next">下一页</button>
+    </div>
+    <div class="dialog-foot">
+      <span class="dialog-msg" id="org-progress"></span>
+      <button class="btn ghost" type="button" data-close="organize-dialog">关闭</button>
+      <button class="btn primary" type="button" id="btn-org-apply">执行整理</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="props-dialog" class="dialog">
+  <div class="dialog-body">
+    <div class="dialog-title">
+      <h3>属性</h3>
+      <button class="dialog-x" type="button" data-close="props-dialog" aria-label="关闭">×</button>
+    </div>
+    <dl class="props-list" id="props-body"></dl>
+    <div class="dialog-foot">
+      <span></span>
+      <button class="btn ghost" type="button" data-close="props-dialog">关闭</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="folder-dialog" class="dialog">
+  <form class="dialog-body" id="folder-form">
+    <div class="dialog-title">
+      <h3>新建文件夹</h3>
+      <button class="dialog-x" type="button" data-close="folder-dialog" aria-label="关闭">×</button>
+    </div>
+    <label class="field">
+      文件夹名称
+      <input type="text" id="folder-input" maxlength="255" autocomplete="off" spellcheck="false">
+    </label>
+    <div class="dialog-foot">
+      <span class="dialog-msg" id="folder-msg"></span>
+      <button class="btn ghost" type="button" data-close="folder-dialog">取消</button>
+      <button class="btn primary" type="submit" id="btn-folder-save">创建</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="stats-dialog" class="dialog">
+  <div class="dialog-body">
+    <div class="dialog-title">
+      <h3>下载统计</h3>
+      <button class="dialog-x" type="button" data-close="stats-dialog" aria-label="关闭">×</button>
+    </div>
+    <div class="metrics">
+      <div class="metric">
+        <span>今日下载</span>
+        <b id="stat-today">-</b>
+        <small id="stat-today-count"></small>
+      </div>
+      <div class="metric">
+        <span>累计下载</span>
+        <b id="stat-total">-</b>
+        <small id="stat-total-count"></small>
+      </div>
+      <div class="metric">
+        <span>成功率</span>
+        <b id="stat-rate">-</b>
+        <small id="stat-counts"></small>
+      </div>
+      <div class="metric">
+        <span>失败任务</span>
+        <b id="stat-failed">-</b>
+        <small>重试成功后自动消失</small>
+      </div>
+    </div>
+    <div class="detail-section-title">最近 7 天已完成</div>
+    <div class="stats-bars" id="stats-bars"></div>
+    <div class="detail-section-title">失败原因 Top 5</div>
+    <div class="stats-failures" id="stats-failures"></div>
+    <div class="dialog-foot">
+      <span></span>
+      <button class="btn ghost" id="btn-export-csv" type="button">导出任务 CSV</button>
+    </div>
+    <p class="muted">统计基于当前任务记录，删除任务后不再计入。</p>
+  </div>
+</dialog>
+
+<dialog id="logs-dialog" class="dialog wide">
+  <div class="dialog-body">
+    <div class="dialog-title">
+      <h3>运行日志</h3>
+      <button class="dialog-x" type="button" data-close="logs-dialog" aria-label="关闭">×</button>
+    </div>
+    <div class="log-toolbar">
+      <select class="select" id="log-level">
+        <option value="">全部级别</option>
+        <option value="DEBUG">DEBUG</option>
+        <option value="INFO">INFO</option>
+        <option value="WARNING">WARNING</option>
+        <option value="ERROR">ERROR</option>
+      </select>
+      <input class="search" id="log-filter" type="search" placeholder="关键词">
+      <button class="btn ghost" id="btn-log-refresh">刷新</button>
+      <button class="btn ghost" id="btn-diagnostics">导出诊断包</button>
+    </div>
+    <div class="log-list" id="log-list"></div>
+    <p class="muted">诊断包已脱敏，不含 Cookie、token 与文件内容；日志仅保存在内存中，重启后清空。</p>
+  </div>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
