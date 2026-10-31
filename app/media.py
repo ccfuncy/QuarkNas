@@ -6,6 +6,7 @@ TMDB 校验并换成中文官方译名。解析部分只做纯计算，方便单
 
 from __future__ import annotations
 
+import html
 import re
 import time
 import unicodedata
@@ -306,7 +307,9 @@ def _clean_titles(text: str) -> tuple[str, list[str]]:
     `The Wind Rises 風立ちぬ` 这类名字里同时有外文原名和中/日文名，
     主片名仍取中/日文，外文名留作检索时的第二个候选。
     """
-    text = (text or "").replace("\u200b", " ")
+    # 网盘里有些文件名带 HTML 转义（`Howl&#39;s`），先还原成正常字符，
+    # 否则英文原名切不干净，主片名会连外文一起留下。
+    text = html.unescape(text or "").replace("\u200b", " ")
     head = _head_title(text)
     if head:
         # `[风之谷][Nausicaa]...`：中文方括号就是片名，后面的外文名和标签都丢掉。
