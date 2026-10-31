@@ -449,6 +449,34 @@ def _query_tails(query: str) -> list[str]:
     return [" ".join(words[i:]) for i in range(1, len(words) - 1)]
 
 
+_ALIAS_YEAR_RE = re.compile(r"[（(]?\s*(19\d{2}|20\d{2})\s*[)）]?\s*$")
+
+
+def parse_aliases(text: str) -> dict[str, tuple[str, int | None]]:
+    """解析设置里的片名别名，每行「本地名 = 目标片名 (年份)」。
+
+    TMDB 没有对应条目、或条目名对不上时用它兜底，例如
+    「吉卜力实验剧场 = On Your Mark (1995)」。
+    """
+    aliases: dict[str, tuple[str, int | None]] = {}
+    for line in (text or "").replace("＝", "=").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        local, sep, target = line.partition("=")
+        local, target = local.strip(), target.strip()
+        if not sep or not local or not target:
+            continue
+        year = None
+        matched = _ALIAS_YEAR_RE.search(target)
+        if matched:
+            year = int(matched.group(1))
+            target = target[: matched.start()].strip()
+        if target:
+            aliases[norm_key(local)] = (target, year)
+    return aliases
+
+
 # 中文标题在别名里按这个顺序挑：大陆优先，其次港台。
 _LANGUAGE_REGIONS = {
     "zh-CN": ("CN", "HK", "TW"),
@@ -519,13 +547,19 @@ class TmdbClient:
     BASE_URL = "https://api.themoviedb.org/3"
 
     def __init__(
-        self, api_key: str, hosts_url: str = "", language: str = "zh-CN"
+        self,
+        api_key: str,
+        hosts_url: str = "",
+        language: str = "zh-CN",
+        aliases: dict[str, tuple[str, int | None]] | None = None,
     ) -> None:
         self.api_key = api_key.strip()
         # CheckTMDB 的 hosts 列表地址；留空就直连官方域名。
         self.hosts_url = (hosts_url or "").strip()
         # 片名语言：zh-CN / zh-TW / en-US。
         self.language = (language or "zh-CN").strip()
+        # 本地片名 → (目标片名, 年份)，TMDB 缺条目时的手动映射。
+        self.aliases = aliases or {}
         # 只有选中文时才需要做「别名词条 / 保留本地中文名」的回退。
         self._chinese = self.language.startswith("zh")
         self._http = httpx.AsyncClient(
@@ -583,6 +617,13 @@ class TmdbClient:
         title = (title or "").strip()
         if not title or title == "未命名":
             return None
+        # 设置里配了片名别名时，直接按映射的目标片名检索；查不到也按映射整理。
+        alias = self.aliases.get(norm_key(title))
+        alias_title = ""
+        if alias:
+            alias_title = alias[0]
+            title = alias_title
+            year = alias[1] or year
         is_tv = kind == "episode"
         path = "tv" if is_tv else "movie"
         # 不传年份过滤：本地解析的年份经常差一年，交给 _rank 打分更稳。
@@ -627,6 +668,9 @@ class TmdbClient:
             # `红の豚` 这类繁简混写的片名搜出来只有一条，就是 TMDB 给出的答案。
             best = self._only_result(results, query, is_tv, year)
         if best is None:
+            if alias_title:
+                # 手动映射优先于检索结果：TMDB 没这条也按配置的片名整理。
+                return MetaMatch(title=alias_title, year=year, source_id="", via="alias")
             return None
         matched = best[1]
         # 选中文时 TMDB 没有中文主标题，先从别名里找中文名，实在没有就保留
@@ -637,7 +681,13 @@ class TmdbClient:
                 matched = zh
             elif _CJK_RE.search(title):
                 matched = title
-        return MetaMatch(title=matched, year=best[2], source_id=str(best[3]), via="tmdb")
+        # 手动映射带了年份时，条目缺上映日期就用映射里的年份。
+        matched_year = best[2]
+        if alias_title and matched_year is None:
+            matched_year = year
+        return MetaMatch(
+            title=matched, year=matched_year, source_id=str(best[3]), via="tmdb"
+        )
 
     async def _en_lookup(
         self, path: str, query: str, is_tv: bool, year: int | None
