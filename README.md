@@ -86,7 +86,7 @@ QUARKNAS_IMAGE=<用户名>/quarknas:latest docker compose up -d
 | `DOCKERHUB_USERNAME` | Docker Hub 用户名，同时作为镜像名前缀 |
 | `DOCKERHUB_TOKEN` | Docker Hub Access Token（Account Settings → Security 新建，权限选 Read & Write 即可） |
 
-镜像标签：`latest`（默认分支）、分支名、`v1.2.3` 对应的 `1.2.3` 与 `1.2`、提交短 SHA。
+镜像标签：每次 push 会推分支名（`main`）与提交短 SHA；推 `v1.2.3` 这类 tag 时额外推 `1.2.3`、`1.2` 和 `latest`。也就是说 `latest` 只跟随版本 tag，日常提交不会覆盖它。
 
 ## 本地开发
 
