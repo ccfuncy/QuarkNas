@@ -3065,6 +3065,7 @@
               season: item.season,
               episode: item.episode,
               ext: item.ext,
+              alt_titles: item.alt_titles || [],
             })),
           }),
         });

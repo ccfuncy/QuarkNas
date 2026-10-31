@@ -293,7 +293,19 @@ def _head_title(text: str) -> str:
     return title
 
 
-def _clean_title(text: str) -> str:
+def _remember_alt(alts: list[str], value: str) -> None:
+    """记下被切掉的外文原名，供多标题交叉校验；太短的片段不参与。"""
+    alt = value.strip(" -_·:：|")
+    if len(norm_key(alt)) >= 2 and alt not in alts:
+        alts.append(alt)
+
+
+def _clean_titles(text: str) -> tuple[str, list[str]]:
+    """清理片名，并顺带取出被丢弃的外文原名。
+
+    `The Wind Rises 風立ちぬ` 这类名字里同时有外文原名和中/日文名，
+    主片名仍取中/日文，外文名留作检索时的第二个候选。
+    """
     text = (text or "").replace("\u200b", " ")
     head = _head_title(text)
     if head:
@@ -310,12 +322,19 @@ def _clean_title(text: str) -> str:
     text = _CN_JUNK_RE.sub(" ", text)
     text = re.sub(r"[._]+", " ", text)
     text = re.sub(r"\s+", " ", text)
+    alts: list[str] = []
+    head_match = _FOREIGN_HEAD_RE.match(text)
+    if head_match:
+        _remember_alt(alts, head_match.group(0))
     text = _FOREIGN_HEAD_RE.sub("", text)
+    tail_match = _FOREIGN_TAIL_RE.search(text)
+    if tail_match:
+        _remember_alt(alts, tail_match.group(0))
     text = _FOREIGN_TAIL_RE.sub("", text)
     text = text.strip(" -_·:：|")
     # 末尾的字幕组标记，如 -RARBG / -CMCT
     text = re.sub(r"\s*-\s*[A-Za-z0-9]{2,12}$", "", text).strip(" -_·")
-    return text
+    return text, alts
 
 
 def pick_folder(parts: list[str]) -> str:
@@ -351,15 +370,18 @@ def parse_media(name: str, folder: str = "") -> dict[str, Any]:
         season = folder_marker.get("season")
 
     cut = min(cut, _title_cut(stem))
-    title = _clean_title(stem[:cut] if cut < len(stem) else stem)
+    title, alts = _clean_titles(stem[:cut] if cut < len(stem) else stem)
     year = _extract_year(stem)
 
     if (not title or title.lower() in _GENERIC_TITLES) and folder:
         _, folder_cut = _find_markers(folder)
         folder_cut = min(folder_cut, _title_cut(folder))
-        folder_title = _clean_title(folder[:folder_cut] if folder_cut < len(folder) else folder)
+        folder_title, folder_alts = _clean_titles(
+            folder[:folder_cut] if folder_cut < len(folder) else folder
+        )
         if folder_title and folder_title.lower() not in _GENERIC_TITLES:
             title = folder_title
+            alts = folder_alts
 
     if year is None and folder:
         year = _extract_year(folder)
@@ -380,6 +402,12 @@ def parse_media(name: str, folder: str = "") -> dict[str, Any]:
             confidence = "low"
             reason = "未识别到年份"
 
+    # 和外文原名交叉校验时，重复的、被删空的候选没有意义。
+    title_key = norm_key(title)
+    alt_titles = [
+        alt for alt in alts if norm_key(alt) and norm_key(alt) != title_key
+    ]
+
     return {
         "title": title,
         "year": year,
@@ -388,6 +416,7 @@ def parse_media(name: str, folder: str = "") -> dict[str, Any]:
         "episode": episode,
         "confidence": confidence,
         "reason": reason,
+        "alt_titles": alt_titles,
     }
 
 
@@ -410,7 +439,9 @@ def norm_key(text: str) -> str:
     # 先拆掉音标符号，`Nausicaä` 才能和 `Nausicaa` 对上。
     text = unicodedata.normalize("NFKD", text or "")
     text = "".join(ch for ch in text if not unicodedata.combining(ch))
-    return re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "", text.lower())
+    # 片假名/平假名是日文片名的一部分，必须保留：删掉不仅会让纯假名标题
+    # 变成空串，还会让不同假名标题塌缩成同一个 key（`風立ちぬ` → `風立`）。
+    return re.sub(r"[^0-9a-z\u3040-\u30ff\u4e00-\u9fff]+", "", text.lower())
 
 
 def _first_int(value: Any) -> int | None:
@@ -612,7 +643,11 @@ class TmdbClient:
         return results if isinstance(results, list) else []
 
     async def search(
-        self, title: str, kind: str, year: int | None
+        self,
+        title: str,
+        kind: str,
+        year: int | None,
+        alt_titles: list[str] | None = None,
     ) -> MetaMatch | None:
         title = (title or "").strip()
         if not title or title == "未命名":
@@ -624,6 +659,9 @@ class TmdbClient:
             alias_title = alias[0]
             title = alias_title
             year = alias[1] or year
+        alts = []
+        if not alias_title:
+            alts = [alt.strip() for alt in alt_titles or [] if alt.strip()]
         is_tv = kind == "episode"
         path = "tv" if is_tv else "movie"
         # 不传年份过滤：本地解析的年份经常差一年，交给 _rank 打分更稳。
@@ -648,6 +686,12 @@ class TmdbClient:
                     )
                 )
                 best = self._rank(results, query, is_tv, year)
+        if alts:
+            # 文件名里同时写了外文原名时，两个标题各自精确命中的条目求交集，
+            # 只剩一条才算确定，不再靠年份和热度在同名翻拍之间猜。
+            agreed = await self._consensus(path, results, query, alts, is_tv, year)
+            if agreed is not None:
+                best = agreed
         if best is None and self._chinese and not _CJK_RE.search(query):
             # 纯外文片名在中文结果里只剩译名，匹配不上；换英文确认条目，
             # 再按条目 id 取中文译名，避免整理成外文原名。
@@ -688,6 +732,76 @@ class TmdbClient:
         return MetaMatch(
             title=matched, year=matched_year, source_id=str(best[3]), via="tmdb"
         )
+
+    async def _consensus(
+        self,
+        path: str,
+        results: list[Any],
+        title: str,
+        alt_titles: list[str],
+        is_tv: bool,
+        year: int | None,
+    ) -> tuple[float, str, int | None, Any, float] | None:
+        """多个标题各自精确命中的条目求交集，唯一交集才采用。
+
+        文件名常把中文译名和外文原名写在一起（`The Wind Rises 風立ちぬ`），
+        两个标题都指向同一条时，就不用再靠年份或热度在同名翻拍里挑。
+        交集为空或不止一条说明证据不足，交回原来的打分逻辑。
+        """
+        target = norm_key(title)
+        if not target:
+            return None
+        main_ids = {
+            str(meta["id"])
+            for raw in results[:20]
+            if (meta := self._candidate(raw, is_tv))
+            and meta["id"]
+            and target in {norm_key(meta["localized"]), norm_key(meta["original"])}
+        }
+        agreed: set[str] | None = None
+        for alt in alt_titles:
+            key = norm_key(alt)
+            if not key or key == target:
+                continue
+            data = await self._get(
+                f"search/{path}", query=alt, language="en-US", include_adult="false"
+            )
+            ids = {
+                str(meta["id"])
+                for raw in self._results(data)[:20]
+                if (meta := self._candidate(raw, is_tv))
+                and meta["id"]
+                and key in {norm_key(meta["localized"]), norm_key(meta["original"])}
+            }
+            if not ids:
+                continue
+            agreed = ids if agreed is None else agreed & ids
+            if not agreed:
+                return None
+        if not agreed:
+            return None
+        if main_ids:
+            agreed &= main_ids
+        if len(agreed) != 1:
+            return None
+        media_id = next(iter(agreed))
+        for raw in results[:20]:
+            meta = self._candidate(raw, is_tv)
+            if meta and str(meta["id"]) == media_id:
+                score = self._score(
+                    100.0, meta, year, norm_key(meta["localized"]) == target
+                )
+                return (
+                    score,
+                    meta["label"],
+                    meta["year"],
+                    meta["id"],
+                    meta["popularity"],
+                )
+        detail = await self._detail(media_id, path)
+        if detail:
+            return (100.0, detail[0], detail[1] or year, media_id, 0.0)
+        return None
 
     async def _en_lookup(
         self, path: str, query: str, is_tv: bool, year: int | None

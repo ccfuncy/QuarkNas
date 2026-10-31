@@ -203,6 +203,8 @@ class EnrichItem(BaseModel):
     season: int | None = None
     episode: int | None = None
     ext: str = ""
+    # 文件名里被切掉的外文原名，检索时用来交叉确认条目。
+    alt_titles: list[str] = Field(default_factory=list)
 
 
 class EnrichRequest(BaseModel):
@@ -269,6 +271,7 @@ async def scan(req: ScanRequest, ctx: Ctx = Depends(get_ctx)) -> dict:
             "source": "local",
             "ext": ext,
             "title": info["title"],
+            "alt_titles": info["alt_titles"],
             "year": info["year"],
             "kind": info["kind"],
             "season": info["season"],
@@ -377,7 +380,9 @@ async def enrich(req: EnrichRequest, ctx: Ctx = Depends(get_ctx)) -> dict:
             break
         queried += 1
         try:
-            found = await client.search(title, kind, group[0].year)
+            found = await client.search(
+                title, kind, group[0].year, group[0].alt_titles
+            )
         except TmdbError as exc:
             # Key 无效这类错误没法靠重试解决，直接把原因带回前端。
             error = str(exc)
