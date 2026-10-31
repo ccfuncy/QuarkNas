@@ -44,6 +44,8 @@ def _defaults(settings: Settings) -> dict[str, Any]:
         ),
         # 影视整理换用的标题语言；缺对应语言的标题时按地区别名回退。
         "tmdb_language": settings.tmdb_language,
+        # 片名别名，每行「本地名 = 目标片名 (年份)」；TMDB 缺条目时手动映射。
+        "tmdb_aliases": "",
     }
 
 
@@ -133,6 +135,11 @@ def validate(key: str, value: Any) -> Any:
         if value not in TMDB_LANGUAGES:
             raise ConfigError("TMDB 标题语言只能是 zh-CN / zh-TW / en-US")
         return value
+    if key == "tmdb_aliases":
+        text = str(value or "").strip()
+        if len(text) > 4000:
+            raise ConfigError("片名别名不能超过 4000 个字符")
+        return text
     if key == "schedule_enabled" or key == "notify_browser":
         return _as_bool(key, value)
     if key in ("schedule_start", "schedule_end"):
