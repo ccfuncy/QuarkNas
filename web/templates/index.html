@@ -250,6 +250,11 @@
         </select>
         <small>校正后片名使用的语言。选中文时优先 TMDB 中文名，没有中文名就用中文别名，仍没有则保留你原来的中文片名。</small>
       </label>
+      <label class="field span-2">
+        TMDB 片名别名
+        <textarea id="set-tmdb-aliases" rows="3" spellcheck="false" placeholder="吉卜力实验剧场 = On Your Mark (1995)"></textarea>
+        <small>每行一条「本地片名 = 目标片名 (年份)」。TMDB 没有对应条目、或条目名对不上时，按这里的目标片名检索并整理。</small>
+      </label>
     </div>
 
     <p class="muted">落盘目录：<code id="set-root"></code>（由容器环境变量决定，不可在页面修改）</p>

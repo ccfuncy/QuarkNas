@@ -2708,6 +2708,7 @@
     $("set-tmdb-key").value = state.cfg.tmdb_api_key || "";
     $("set-tmdb-hosts").value = state.cfg.tmdb_hosts_url || "";
     $("set-tmdb-lang").value = state.cfg.tmdb_language || "zh-CN";
+    $("set-tmdb-aliases").value = state.cfg.tmdb_aliases || "";
   }
 
   async function loadSettings(show) {
@@ -2806,6 +2807,7 @@
       tmdb_api_key: $("set-tmdb-key").value.trim(),
       tmdb_hosts_url: $("set-tmdb-hosts").value.trim(),
       tmdb_language: $("set-tmdb-lang").value,
+      tmdb_aliases: $("set-tmdb-aliases").value.trim(),
     };
 
     button.disabled = true;
